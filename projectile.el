@@ -2262,8 +2262,8 @@ With a prefix arg INVALIDATE-CACHE invalidates the cache first."
 
 (defun projectile-test-file-p (file)
   "Check if FILE is a test file."
-  (or (if-let (related-file-func (funcall projectile-related-file-function (projectile-project-type)))
-          (when (funcall related-file-func file 'impl) t))
+  (or (if-let (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
+          (when (funcall related-file-function file 'impl) t))
       (cl-some (lambda (pat) (string-prefix-p pat (file-name-nondirectory file)))
                (delq nil (list (funcall projectile-test-prefix-function (projectile-project-type)))))
       (cl-some (lambda (pat) (string-suffix-p pat (file-name-sans-extension (file-name-nondirectory file))))
@@ -2746,23 +2746,22 @@ Fallback to DEFAULT-VALUE for missing attributes."
 
 (defun projectile-find-matching-test (file)
   "Compute the name of the test matching FILE."
-  (let* ((filename (file-name-nondirectory file))
-         (basename (file-name-sans-extension filename))
-         (related-file-func (funcall projectile-related-file-function (projectile-project-type)))
-         (test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
+  (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
          (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
-         (candidates
-          (cl-remove-if-not
-           (lambda (current-file)
-             (let* ((fname (file-name-nondirectory current-file))
-                    (bname (file-name-sans-extension fname)))
-               (or (when related-file-func
-                     (string-equal fname (funcall related-file-func filename 'test)))
-                   (when test-prefix
-                     (string-equal bname (concat test-prefix basename)))
-                   (when test-suffix
-                     (string-equal bname (concat basename test-suffix))))))
-           (projectile-current-project-files))))
+         (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
+         (related-file (when related-file-function (funcall related-file-function file 'test)))
+         (filter-function
+          (if related-file
+              (if (file-name-directory related-file)
+                  (lambda (current-file) (equal current-file related-file))
+                (lambda (current-file) (equal (file-name-nondirectory current-file) related-file)))
+            (let* ((basename (file-name-nondirectory (file-name-sans-extension file)))
+                   (test-name (or (when test-prefix (concat test-prefix basename))
+                                  (when test-suffix (concat basename test-suffix)))))
+              (lambda (current-file)
+                (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
+                  (equal name test-name ))))))
+         (candidates (cl-remove-if-not filter-function (projectile-current-project-files))))
     (cond
      ((null candidates) nil)
      ((= (length candidates) 1) (car candidates))
@@ -2775,23 +2774,23 @@ Fallback to DEFAULT-VALUE for missing attributes."
 
 (defun projectile-find-matching-file (test-file)
   "Compute the name of a file matching TEST-FILE."
-  (let* ((filename (file-name-nondirectory test-file))
-         (basename (file-name-sans-extension filename))
-         (related-file-func (funcall projectile-related-file-function (projectile-project-type)))
-         (test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
+  (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
          (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
-         (candidates
-          (cl-remove-if-not
-           (lambda (current-file)
-             (let* ((fname (file-name-nondirectory current-file))
-                    (bname (file-name-sans-extension fname)))
-               (or (when related-file-func
-                     (string-equal fname (funcall related-file-func filename 'impl)))
-                   (when test-prefix
-                     (string-equal (concat test-prefix bname) basename))
-                   (when test-suffix
-                     (string-equal (concat bname test-suffix) basename)))))
-           (projectile-current-project-files))))
+         (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
+         (related-file (when related-file-function (funcall related-file-function test-file 'impl)))
+         (filter-function
+          (if related-file
+              (if (file-name-directory related-file)
+                  (lambda (current-file) (equal current-file related-file))
+                (lambda (current-file) (equal (file-name-nondirectory current-file) related-file)))
+            (let ((basename (file-name-nondirectory (file-name-sans-extension test-file))))
+              (lambda (current-file)
+                (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
+                  (or (when test-prefix
+                        (equal (concat test-prefix name) basename))
+                      (when test-suffix
+                        (equal (concat name test-suffix) basename))))))))
+         (candidates (cl-remove-if-not filter-function (projectile-current-project-files))))
     (cond
      ((null candidates) nil)
      ((= (length candidates) 1) (car candidates))
