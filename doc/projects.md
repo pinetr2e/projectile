@@ -137,12 +137,12 @@ Note that your function has to return a string to work properly.
 
 For simple projects, `:test-prefix` and `:test-suffix` option with string will
 be enough. For the projects working with multiple file extension and/or
-different test file name rule, `:related-file` option with function can be used instead.
+different test file name rule, `:related-file` option with custom function can be used instead.
 
 ```el
-(defun my/related-file (filename type)
+(defun my/related-file (file kind)
   (cond
-   ((eq type 'test)
+   ((eq kind :test)
     (let ((regexp-cpp (rx (1+ anything) ".cpp"))
           (regexp-py (rx (1+ anything) ".py")))
       (cond
@@ -150,7 +150,7 @@ different test file name rule, `:related-file` option with function can be used 
         (concat "Test" filename))
        ((string-match regexp-py filename)
         (concat "test_" filename)))))
-   ((eq type 'impl)
+   ((eq kind :impl)
      (let ((regexp-cpp (rx "Test" (group (1+ anything) ".cpp")))
            (regexp-py (rx "test_" (group (1+ anything) ".py")))
            (rep "\\1"))
@@ -165,9 +165,10 @@ different test file name rule, `:related-file` option with function can be used 
                                   :related-file 'my/related-file
                                   ...)
 ```
-`filename` contains a file name with extension without directory component.
-`type` is a symbol, either `'test` or `'impl`.
-`related-file` function should return a file name for corresponding to `type` or nil if it is not applicable.
+`file` contains the relative path of impl/test file from the project root.
+`kind` specifies the kind to look for.  It can be ':test' or ':impl' as a keyword.
+`related-file` function can return a relative path from the project root or filename, which means that the directory
+does not matter. `related-file` can return `nil` to mean there is no related file.
 
 With the above example, .cpp file and .py file can have different test files.
 

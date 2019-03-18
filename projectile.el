@@ -2263,7 +2263,7 @@ With a prefix arg INVALIDATE-CACHE invalidates the cache first."
 (defun projectile-test-file-p (file)
   "Check if FILE is a test file."
   (or (if-let (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-          (when (funcall related-file-function file 'impl) t))
+          (when (funcall related-file-function file :impl) t))
       (cl-some (lambda (pat) (string-prefix-p pat (file-name-nondirectory file)))
                (delq nil (list (funcall projectile-test-prefix-function (projectile-project-type)))))
       (cl-some (lambda (pat) (string-suffix-p pat (file-name-sans-extension (file-name-nondirectory file))))
@@ -2298,7 +2298,7 @@ TEST-DIR which specifies the path to the tests relative to the project root.
 RELATED-FILE which specifies function to find the related files such as test/impl files.
           (my/related-file FILENAME TYPE)
           FILENAME does not include directory component.
-          TYPE can be 'test or 'impl.
+          KIND can be :test or :impl.
           Should return a related filename or nil if not found.
           RELATED-FILE can be used instead of TEST_SUFFIX/PREFIX for the
           more complex projects."
@@ -2749,18 +2749,19 @@ Fallback to DEFAULT-VALUE for missing attributes."
   (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
          (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
          (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-         (related-file (when related-file-function (funcall related-file-function file 'test)))
+         (related-file (when related-file-function (funcall related-file-function file :test)))
          (filter-function
           (if related-file
               (if (file-name-directory related-file)
                   (lambda (current-file) (equal current-file related-file))
                 (lambda (current-file) (equal (file-name-nondirectory current-file) related-file)))
             (let* ((basename (file-name-nondirectory (file-name-sans-extension file)))
-                   (test-name (or (when test-prefix (concat test-prefix basename))
-                                  (when test-suffix (concat basename test-suffix)))))
+                   (prefix-name  (and test-prefix (concat test-prefix basename)))
+                   (suffix-name  (and test-suffix (concat basename test-suffix))))
               (lambda (current-file)
-                (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
-                  (equal name test-name ))))))
+                (let ((name (file-name-nondirectory
+                             (file-name-sans-extension current-file))))
+                  (or (equal prefix-name name) (equal suffix-name name)))))))
          (candidates (cl-remove-if-not filter-function (projectile-current-project-files))))
     (cond
      ((null candidates) nil)
@@ -2777,7 +2778,7 @@ Fallback to DEFAULT-VALUE for missing attributes."
   (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
          (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
          (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-         (related-file (when related-file-function (funcall related-file-function test-file 'impl)))
+         (related-file (when related-file-function (funcall related-file-function test-file :impl)))
          (filter-function
           (if related-file
               (if (file-name-directory related-file)

@@ -935,11 +935,11 @@ test temp directory"
              (projectile-enable-caching nil))
          (projectile-register-project-type
           'cpp-project '("somefile")
-          :related-file (lambda (file type)
+          :related-file (lambda (file kind)
                           (let ((config
                                  (cond
-                                  ((eq type 'test) (cons (rx (group (1+ anything )) ".cpp") "Test\\1.cpp"))
-                                  ((eq type 'impl) (cons (rx "Test" (group (1+ anything )) ".cpp") "\\1.cpp")))))
+                                  ((eq kind :test) (cons (rx (group (1+ anything )) ".cpp") "Test\\1.cpp"))
+                                  ((eq kind :impl) (cons (rx "Test" (group (1+ anything )) ".cpp") "\\1.cpp")))))
                             (when config
                               (cl-destructuring-bind (regexp . rep) config
                                 (let ((filename (file-name-nondirectory file)))
@@ -950,7 +950,9 @@ test temp directory"
          (expect (projectile-find-matching-test "src/Foo.cpp") :to-equal "test/TestFoo.cpp")
          (expect (projectile-find-matching-file "test/TestFoo.cpp") :to-equal "src/Foo.cpp")
          (expect (projectile-test-file-p "test/TestFoo.cpp") :to-equal t)
-         (expect (projectile-test-file-p "src/Foo.cpp") :to-equal nil)))))
+         (expect (projectile-test-file-p "src/Foo.cpp") :to-equal nil)
+         ;; (expect (projectile--test-name-for-impl-name "src/Foo.cpp") :to-equal "src/Foo."nil)
+         ))))
   (it "finds matching test having same file name on different dir"
     (projectile-test-with-sandbox
       (projectile-test-with-files
@@ -964,11 +966,11 @@ test temp directory"
              (projectile-enable-caching nil))
          (projectile-register-project-type
           'cpp-project '("somefile")
-          :related-file (lambda (filename type)
+          :related-file (lambda (filename kind)
                           (let ((config
                                  (cond
-                                  ((eq type 'test) (cons (rx "src/" (group (1+ anything)) ".cpp") "test/\\1.cpp"))
-                                  ((eq type 'impl) (cons (rx "test/" (group (1+ anything )) ".cpp") "src/\\1.cpp")))))
+                                  ((eq kind :test) (cons (rx "src/" (group (1+ anything)) ".cpp") "test/\\1.cpp"))
+                                  ((eq kind :impl) (cons (rx "test/" (group (1+ anything )) ".cpp") "src/\\1.cpp")))))
                             (when config
                               (cl-destructuring-bind (regexp . rep) config
                                 (if (string-match regexp filename)
