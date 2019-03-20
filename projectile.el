@@ -2260,14 +2260,45 @@ With a prefix arg INVALIDATE-CACHE invalidates the cache first."
   "Return only the test FILES."
   (cl-remove-if-not 'projectile-test-file-p files))
 
+
+(defun projectile--get-test-prefix (file)
+  (let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
+    (if (consp related-file-option)
+        (assoc-default :test-prefix
+                       (assoc-default (file-name-extension file) related-file-option))
+      (funcall projectile-test-prefix-function (projectile-project-type)))))
+
+
+(defun projectile--get-test-suffix (file)
+  (let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
+    (if (consp related-file-option)
+        (assoc-default :test-suffix
+                       (assoc-default (file-name-extension file) related-file-option))
+      (funcall projectile-test-suffix-function (projectile-project-type)))))
+
+
+(defun projectile--get-related-files (file kind)
+  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
+      (when (functionp related-file-option)
+        (if-let ((related-file (alist-get kind (funcall related-file-option file))))
+            (cl-remove-if-not
+             (lambda (f)
+               (projectile-file-exists-p (expand-file-name file (projectile-project-root))))
+             (if (stringp related-file) (list related-file)
+               related-file))))))
+
+
+(defun projectile--ignore-extension-for-test ()
+  (not (consp (funcall projectile-related-file-function (projectile-project-type)))))
+
 (defun projectile-test-file-p (file)
   "Check if FILE is a test file."
-  (or (if-let (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-          (when (funcall related-file-function file :impl) t))
-      (cl-some (lambda (pat) (string-prefix-p pat (file-name-nondirectory file)))
-               (delq nil (list (funcall projectile-test-prefix-function (projectile-project-type)))))
-      (cl-some (lambda (pat) (string-suffix-p pat (file-name-sans-extension (file-name-nondirectory file))))
-               (delq nil (list (funcall projectile-test-suffix-function (projectile-project-type)))))))
+  (if (projectile--get-related-files file :impl) t
+    (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
+           (test-prefix (projectile--get-test-prefix file))
+           (test-suffix (projectile--get-test-suffix file)))
+      (or (when test-prefix (string-prefix-p test-prefix basename))
+          (when test-suffix (string-suffix-p test-suffix basename))))))
 
 (defun projectile-current-project-test-files ()
   "Return a list of test files for the current project."
@@ -2744,63 +2775,64 @@ Fallback to DEFAULT-VALUE for missing attributes."
                       (nreverse result))))
            (lambda (a b) (> (car a) (car b)))))
 
+
+(defun projectile--find-matching-test-filter (file)
+  (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
+         (test-prefix (projectile--get-test-prefix file))
+         (test-suffix (projectile--get-test-suffix file))
+         (prefix-name (when test-prefix (concat test-prefix basename)))
+         (suffix-name (when test-suffix (concat basename test-suffix)))
+         (ignore-extension (projectile--ignore-extension-for-test))
+         (extension (file-name-extension file)))
+    (lambda (current-file)
+      (let ((name (file-name-sans-extension (file-name-nondirectory current-file))))
+        (when (or ignore-extension
+                  (equal (file-name-extension current-file) extension))
+          (or (equal prefix-name name)
+              (equal suffix-name name)))))))
+
+
 (defun projectile-find-matching-test (file)
   "Compute the name of the test matching FILE."
-  (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
-         (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
-         (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-         (related-file (when related-file-function (funcall related-file-function file :test)))
-         (filter-function
-          (if related-file
-              (if (file-name-directory related-file)
-                  (lambda (current-file) (equal current-file related-file))
-                (lambda (current-file) (equal (file-name-nondirectory current-file) related-file)))
-            (let* ((basename (file-name-nondirectory (file-name-sans-extension file)))
-                   (prefix-name  (and test-prefix (concat test-prefix basename)))
-                   (suffix-name  (and test-suffix (concat basename test-suffix))))
-              (lambda (current-file)
-                (let ((name (file-name-nondirectory
-                             (file-name-sans-extension current-file))))
-                  (or (equal prefix-name name) (equal suffix-name name)))))))
-         (candidates (cl-remove-if-not filter-function (projectile-current-project-files))))
-    (cond
-     ((null candidates) nil)
-     ((= (length candidates) 1) (car candidates))
-     (t (let ((grouped-candidates (projectile-group-file-candidates file candidates)))
-          (if (= (length (car grouped-candidates)) 2)
-              (car (last (car grouped-candidates)))
-            (projectile-completing-read
-             "Switch to: "
-             (apply 'append (mapcar 'cdr grouped-candidates)))))))))
+  (projectile--switch-from-candidate
+   file
+   (or (projectile--get-related-files file :test)
+       (cl-remove-if-not (projectile--find-matching-test-filter file)
+                         (projectile-current-project-files)))))
+
+(defun projectile--switch-from-candidate (file candidates)
+  (cond
+   ((null candidates) nil)
+   ((= (length candidates) 1) (car candidates))
+   (t (let ((grouped-candidates (projectile-group-file-candidates file candidates)))
+        (if (= (length (car grouped-candidates)) 2)
+            (car (last (car grouped-candidates)))
+          (projectile-completing-read
+           "Switch to: "
+           (apply 'append (mapcar 'cdr grouped-candidates))))))))
+
+(defun projectile--find-matching-file-filter (test-file)
+  (let* ((basename (file-name-sans-extension (file-name-nondirectory test-file)))
+         (test-prefix (projectile--get-test-prefix test-file))
+         (test-suffix (projectile--get-test-suffix test-file))
+         (ignore-extension (projectile--ignore-extension-for-test))
+         (extension (file-name-extension test-file)))
+    (lambda (current-file)
+      (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
+        (when (or ignore-extension
+                  (equal (file-name-extension current-file) extension))
+          (or (when test-prefix (equal (concat test-prefix name) basename))
+              (when test-suffix (equal (concat name test-suffix) basename))))))))
+
 
 (defun projectile-find-matching-file (test-file)
   "Compute the name of a file matching TEST-FILE."
-  (let* ((test-prefix (funcall projectile-test-prefix-function (projectile-project-type)))
-         (test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))
-         (related-file-function (funcall projectile-related-file-function (projectile-project-type)))
-         (related-file (when related-file-function (funcall related-file-function test-file :impl)))
-         (filter-function
-          (if related-file
-              (if (file-name-directory related-file)
-                  (lambda (current-file) (equal current-file related-file))
-                (lambda (current-file) (equal (file-name-nondirectory current-file) related-file)))
-            (let ((basename (file-name-nondirectory (file-name-sans-extension test-file))))
-              (lambda (current-file)
-                (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
-                  (or (when test-prefix
-                        (equal (concat test-prefix name) basename))
-                      (when test-suffix
-                        (equal (concat name test-suffix) basename))))))))
-         (candidates (cl-remove-if-not filter-function (projectile-current-project-files))))
-    (cond
-     ((null candidates) nil)
-     ((= (length candidates) 1) (car candidates))
-     (t (let ((grouped-candidates (projectile-group-file-candidates test-file candidates)))
-          (if (= (length (car grouped-candidates)) 2)
-              (car (last (car grouped-candidates)))
-            (projectile-completing-read
-             "Switch to: "
-             (apply 'append (mapcar 'cdr grouped-candidates)))))))))
+  (projectile--switch-from-candidate
+   test-file
+   (or (projectile--get-related-files test-file :impl)
+       (cl-remove-if-not (projectile--find-matching-file-filter test-file)
+                         (projectile-current-project-files)))))
+
 
 (defun projectile-grep-default-files ()
   "Try to find a default pattern for `projectile-grep'.
@@ -4506,7 +4538,5 @@ Otherwise behave as if called interactively.
 
 ;;;###autoload
 (define-obsolete-function-alias 'projectile-global-mode 'projectile-mode "1.0")
-
 (provide 'projectile)
-
 ;;; projectile.el ends here
