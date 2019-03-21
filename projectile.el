@@ -2260,33 +2260,29 @@ With a prefix arg INVALIDATE-CACHE invalidates the cache first."
   "Return only the test FILES."
   (cl-remove-if-not 'projectile-test-file-p files))
 
-
 (defun projectile--get-test-prefix (file)
-  (let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
-    (if (consp related-file-option)
-        (assoc-default :test-prefix
-                       (assoc-default (file-name-extension file) related-file-option))
-      (funcall projectile-test-prefix-function (projectile-project-type)))))
+  (if-let* ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
+            (ext-list (plist-get related-file-option :ext)))
+      (plist-get (lax-plist-get ext-list (file-name-extension file))
+                 :test-prefix)
+    (funcall projectile-test-prefix-function (projectile-project-type))))
 
-
-(defun projectile--get-test-suffix (file)
-  (let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
-    (if (consp related-file-option)
-        (assoc-default :test-suffix
-                       (assoc-default (file-name-extension file) related-file-option))
-      (funcall projectile-test-suffix-function (projectile-project-type)))))
-
+(defun projectile--get-test-suffix(file)
+  (if-let* ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
+            (ext-list (plist-get related-file-option :ext)))
+      (plist-get (lax-plist-get ext-list (file-name-extension file))
+                 :test-suffix)
+    (funcall projectile-test-suffix-function (projectile-project-type))))
 
 (defun projectile--get-related-files (file kind)
   (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
-      (when (functionp related-file-option)
-        (if-let ((related-file (alist-get kind (funcall related-file-option file))))
+      (if-let ((custom-function (plist-get related-file-option :function)))
+          (if-let ((related-file (plist-get (funcall custom-function file) kind)))
             (cl-remove-if-not
              (lambda (f)
                (projectile-file-exists-p (expand-file-name file (projectile-project-root))))
              (if (stringp related-file) (list related-file)
                related-file))))))
-
 
 (defun projectile--ignore-extension-for-test ()
   (not (consp (funcall projectile-related-file-function (projectile-project-type)))))
@@ -2316,9 +2312,9 @@ the properties of the various project types.")
 A project type is defined by PROJECT-TYPE, a set of MARKER-FILES,
 and optional keyword arguments:
 COMPILATION-DIR the directory to run the tests- and compilations in,
-CONFIGURE which specifies a command that configures the project
-          `%s' in the command will be substituted with (projectile-project-root)
-          before the command is run,
+CONFIGURE which specifies a command that configures the project:
+  `%s' in the command will be substituted with (projectile-project-root)
+  before the command is run,
 COMPILE which specifies a command that builds the project,
 TEST which specified a command that tests the project,
 RUN which specifies a command that runs the project,
@@ -2326,20 +2322,27 @@ TEST-SUFFIX which specifies test file suffix, and
 TEST-PREFIX which specifies test file prefix.
 SRC-DIR which specifies the path to the source relative to the project root.
 TEST-DIR which specifies the path to the tests relative to the project root.
-RELATED-FILE which specifies function to find the related files such as test/impl files.
-          (my/related-file FILENAME TYPE)
-          FILENAME does not include directory component.
-          KIND can be :test or :impl.
-          Should return a related filename or nil if not found.
-          RELATED-FILE can be used instead of TEST_SUFFIX/PREFIX for the
-          more complex projects."
+RELATED-FILE which specifies the plist to find the related files such as
+test/impl files as below:
+
+  (:ext EXT-PLIST :function CUSTOM-FUNCTION)
+
+  where,
+
+  EXT-PLIST specifies the :test-prefix/:test-suffix per extension as follow:
+    (\"cpp\" (:test-prefix \"Test\")
+    (\"py\" (:test-prefix \"test-\" :test-suffix \"-test\"))
+
+  CUSTOM-FUNCTION accepts FILE as relative path from the project root and returns
+  a plist containing :test or :impl as key and the relative path/paths
+  of the related file as value.
+"
   (let ((project-plist (list 'marker-files marker-files
                              'compilation-dir compilation-dir
                              'configure-command configure
                              'compile-command compile
                              'test-command test
-                             'run-command run
-                             )))
+                             'run-command run)))
     ;; There is no way for the function to distinguish between an
     ;; explicit argument of nil and an omitted argument. However, the
     ;; body of the function is free to consider nil an abbreviation
@@ -2546,8 +2549,7 @@ RELATED-FILE which specifies function to find the related files such as test/imp
 ;; Emacs
 (projectile-register-project-type 'emacs-cask '("Cask")
                                   :compile "cask install"
-                                  :test-prefix "test-"
-                                  :test-suffix "-test")
+                                  :related-file '(:ext ("el" (:test-prefix "test-" :test-suffix "-test"))))
 
 ;; R
 (projectile-register-project-type 'r '("DESCRIPTION")
@@ -2775,7 +2777,6 @@ Fallback to DEFAULT-VALUE for missing attributes."
                       (nreverse result))))
            (lambda (a b) (> (car a) (car b)))))
 
-
 (defun projectile--find-matching-test-filter (file)
   (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
          (test-prefix (projectile--get-test-prefix file))
@@ -2790,7 +2791,6 @@ Fallback to DEFAULT-VALUE for missing attributes."
                   (equal (file-name-extension current-file) extension))
           (or (equal prefix-name name)
               (equal suffix-name name)))))))
-
 
 (defun projectile-find-matching-test (file)
   "Compute the name of the test matching FILE."
@@ -2824,7 +2824,6 @@ Fallback to DEFAULT-VALUE for missing attributes."
           (or (when test-prefix (equal (concat test-prefix name) basename))
               (when test-suffix (equal (concat name test-suffix) basename))))))))
 
-
 (defun projectile-find-matching-file (test-file)
   "Compute the name of a file matching TEST-FILE."
   (projectile--switch-from-candidate
@@ -2832,7 +2831,6 @@ Fallback to DEFAULT-VALUE for missing attributes."
    (or (projectile--get-related-files test-file :impl)
        (cl-remove-if-not (projectile--find-matching-file-filter test-file)
                          (projectile-current-project-files)))))
-
 
 (defun projectile-grep-default-files ()
   "Try to find a default pattern for `projectile-grep'.
@@ -4538,5 +4536,7 @@ Otherwise behave as if called interactively.
 
 ;;;###autoload
 (define-obsolete-function-alias 'projectile-global-mode 'projectile-mode "1.0")
+
 (provide 'projectile)
+
 ;;; projectile.el ends here

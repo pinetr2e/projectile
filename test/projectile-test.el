@@ -921,7 +921,7 @@ test temp directory"
         (expect (projectile-find-matching-test "source/foo/foo.service.js") :to-equal "spec/foo/foo.service.spec.js")
         (expect (projectile-find-matching-file "spec/bar/bar.service.spec.js") :to-equal "source/bar/bar.service.js"))))))
 
-(describe "related-file option - use alist per extension"
+(describe "related-file option :ext"
   (it "finds matching test or impl file"
     (projectile-test-with-sandbox
      (projectile-test-with-files
@@ -934,10 +934,9 @@ test temp directory"
        "project/test/bar_test.py")
       (let ((projectile-indexing-method 'native)
             (projectile-enable-caching nil))
-        (projectile-register-project-type
-         'cpp-project '("somefile")
-         :related-file '(("cpp" . ((:test-prefix . "Test")))
-                         ("py"  . ((:test-suffix . "_test")))))
+        (projectile-register-project-type 'cpp-project '("somefile")
+                                          :related-file '(:ext ("cpp" (:test-prefix "Test")
+                                                                "py" (:test-suffix "_test"))))
         (spy-on 'projectile-project-type :and-return-value 'cpp-project)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
         (expect (projectile-find-matching-test "src/Foo.cpp") :to-equal "test/TestFoo.cpp")
@@ -951,8 +950,13 @@ test temp directory"
         (expect (projectile-test-file-p "test/bar_test.cpp") :to-equal nil))))))
 
 
-(describe "related-file option - use function"
+(describe "related-file option :function"
   (it "finds matching test having same file name on different dir"
+    (defun -my/related-file-function(file)
+      (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
+          (if (equal (match-string 1 file ) "test")
+              (list :impl (concat "src" (match-string 2 file)))
+            (list :test (concat "test" (match-string 2 file))))))
     (projectile-test-with-sandbox
       (projectile-test-with-files
           ("project/src/"
@@ -962,14 +966,10 @@ test temp directory"
            "project/test/Bar.cpp"
            "project/test/Foo.cpp")
         (let ((projectile-indexing-method 'native)
-              (projectile-enable-caching nil))
-          (projectile-register-project-type
-           'cpp-project '("somefile")
-           :related-file (lambda (file)
-                           (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
-                               (if (equal (match-string 1 file ) "test")
-                                   (list (cons :impl (concat "src" (match-string 2 file))))
-                                 (list (cons :test (concat "test" (match-string 2 file))))))))
+              (projectile-enable-caching nil)
+              )
+          (projectile-register-project-type 'cpp-project '("somefile")
+                                            :related-file '(:function -my/related-file-function))
           (spy-on 'projectile-project-type :and-return-value 'cpp-project)
           (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
           (expect (projectile-find-matching-test "src/Foo.cpp") :to-equal "test/Foo.cpp")

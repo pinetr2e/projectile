@@ -90,7 +90,7 @@ Option           | Documentation
 :test-dir        | A path, relative to the project root, where the test code lives.
 :test-prefix     | A prefix to generate test files names.
 :test-suffix     | A suffix to generate test files names.
-:related-file    | A function to find test/impl file names in more flexible way then test-prefix/suffix.
+:related-file    | A plist to specify test and other files in a more flexible way.
 
 #### Returning Projectile Commands from a function
 
@@ -133,45 +133,53 @@ This works for:
 
 Note that your function has to return a string to work properly.
 
-#### Customise test file location
+### Test file location
 
 For simple projects, `:test-prefix` and `:test-suffix` option with string will
-be enough. For the projects working with multiple file extension and/or
-different test file name rule, `:related-file` option with custom function can be used instead.
+be enough to specify prefix/suffix applicable regardless of file extensions on any directory path.
 
+For the projects consisting of multiple programming language or using arbitrary rules for test file names,
+`:related-file` option can be used. `:related-file` is a plist and can specify different key/value:
+
+Key              | Value
+---------------- | -------------------------------------------------------------------------------------------
+:ext             | a plist containing prefix/suffix per extension
+:func            | a custom function returning potential candidate path for related files
+
+`:ext` key can specify multiple different prefix/suffix as follows
 ```el
-(defun my/related-file (file kind)
-  (cond
-   ((eq kind :test)
-    (let ((regexp-cpp (rx (1+ anything) ".cpp"))
-          (regexp-py (rx (1+ anything) ".py")))
-      (cond
-       ((string-match regexp-cpp filename)
-        (concat "Test" filename))
-       ((string-match regexp-py filename)
-        (concat "test_" filename)))))
-   ((eq kind :impl)
-     (let ((regexp-cpp (rx "Test" (group (1+ anything) ".cpp")))
-           (regexp-py (rx "test_" (group (1+ anything) ".py")))
-           (rep "\\1"))
-       (cond
-        ((string-match regexp-cpp filename)
-         (replace-regexp-in-string regexp-cpp rep filename))
-        ((string-match regexp-py filename)
-         (replace-regexp-in-string regexp-py rep filename)))))))
-
-
-(projectile-register-project-type ...
-                                  :related-file 'my/related-file
-                                  ...)
+(projectile-register-project-type
+  ;;...
+  :related-file '(:ext ("cpp" (:test-prefix "Test")
+                        "py" (:test-prefix "test-" :test-suffix "_test"))))
 ```
-`file` contains the relative path of impl/test file from the project root.
-`kind` specifies the kind to look for.  It can be ':test' or ':impl' as a keyword.
-`related-file` function can return a relative path from the project root or filename, which means that the directory
-does not matter. `related-file` can return `nil` to mean there is no related file.
 
-With the above example, .cpp file and .py file can have different test files.
+If a more flexible rule is necessary, `:func` key can specify the custom function,
+which accepts the relative file name from the project root and returns the related
+file information as plist.
 
+The custom function should return a plist containing the following key/value:
+
+Key              | Value
+---------------- | -------------------------------------------------------------------------------------------
+:impl            | impl files matching to the given test file
+:test            | test files matching to the given impl file
+
+Each value can be a string or a list of strings and each item should be relative path from the project root.
+
+For example,
+```el
+(defun my/related-file (file)
+  (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
+      (if (equal (match-string 1 file ) "test")
+          (list (cons :impl (concat "src" (match-string 2 file))))
+        (list (cons :test (concat "test" (match-string 2 file)))))))
+
+(projectile-register-project-type
+  ;; ...
+  :related-file '(:func my/related-file)
+```
+With the above example, src/test directory can contain same name file for test/impl.
 
 ## Customizing project root files
 
