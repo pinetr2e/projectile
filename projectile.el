@@ -2260,42 +2260,6 @@ With a prefix arg INVALIDATE-CACHE invalidates the cache first."
   "Return only the test FILES."
   (cl-remove-if-not 'projectile-test-file-p files))
 
-(defun projectile--get-test-prefix (file)
-  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
-           (ext-list (plist-get related-file-option :ext)))
-      (plist-get (lax-plist-get ext-list (file-name-extension file))
-                 :test-prefix)
-    (funcall projectile-test-prefix-function (projectile-project-type))))
-
-(defun projectile--get-test-suffix(file)
-  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
-           (ext-list (plist-get related-file-option :ext)))
-      (plist-get (lax-plist-get ext-list (file-name-extension file))
-                 :test-suffix)
-    (funcall projectile-test-suffix-function (projectile-project-type))))
-
-(defun projectile--get-related-files (file kind)
-  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
-      (if-let ((custom-function (plist-get related-file-option :function)))
-          (if-let ((related-file (plist-get (funcall custom-function file) kind)))
-            (cl-remove-if-not
-             (lambda (f)
-               (projectile-file-exists-p (expand-file-name file (projectile-project-root))))
-             (if (stringp related-file) (list related-file)
-               related-file))))))
-
-(defun projectile--ignore-extension-for-test ()
-  (not (consp (funcall projectile-related-file-function (projectile-project-type)))))
-
-(defun projectile-test-file-p (file)
-  "Check if FILE is a test file."
-  (if (projectile--get-related-files file :impl) t
-    (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
-           (test-prefix (projectile--get-test-prefix file))
-           (test-suffix (projectile--get-test-suffix file)))
-      (or (when test-prefix (string-prefix-p test-prefix basename))
-          (when test-suffix (string-suffix-p test-suffix basename))))))
-
 (defun projectile-current-project-test-files ()
   "Return a list of test files for the current project."
   (projectile-test-files (projectile-current-project-files)))
@@ -2777,26 +2741,55 @@ Fallback to DEFAULT-VALUE for missing attributes."
                       (nreverse result))))
            (lambda (a b) (> (car a) (car b)))))
 
+(defun projectile--get-test-name-config(file)
+  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
+           (ext (file-name-extension file))
+           (ext-plist (lax-plist-get (plist-get related-file-option :ext) ext)))
+      (list :ext ext
+            :test-prefix (plist-get ext-plist :test-prefix)
+            :test-suffix (plist-get ext-plist :test-suffix))
+    (list :test-prefix (funcall projectile-test-prefix-function (projectile-project-type))
+          :test-suffix (funcall projectile-test-suffix-function (projectile-project-type)))))
+
+(defun projectile--get-related-file-candidates (file kind)
+  (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type))))
+      (if-let ((custom-function (plist-get related-file-option :function)))
+          (if-let ((related-file (plist-get (funcall custom-function file) kind)))
+            (cl-remove-if-not
+             (lambda (f)
+               (projectile-file-exists-p (expand-file-name f (projectile-project-root))))
+             (if (stringp related-file) (list related-file)
+               related-file))))))
+
+(defun projectile-test-file-p (file)
+  "Check if FILE is a test file."
+  (if (projectile--get-related-file-candidates file :impl) t
+    (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
+           (config (projectile--get-test-name-config file))
+           (test-prefix (plist-get config :test-prefix))
+           (test-suffix (plist-get config :test-suffix)))
+      (or (when test-prefix (string-prefix-p test-prefix basename))
+          (when test-suffix (string-suffix-p test-suffix basename))))))
+
 (defun projectile--find-matching-test-filter (file)
   (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
-         (test-prefix (projectile--get-test-prefix file))
-         (test-suffix (projectile--get-test-suffix file))
+         (config (projectile--get-test-name-config file))
+         (test-prefix (plist-get config :test-prefix))
+         (test-suffix (plist-get config :test-suffix))
+         (ext (plist-get config :ext))
          (prefix-name (when test-prefix (concat test-prefix basename)))
-         (suffix-name (when test-suffix (concat basename test-suffix)))
-         (ignore-extension (projectile--ignore-extension-for-test))
-         (extension (file-name-extension file)))
+         (suffix-name (when test-suffix (concat basename test-suffix))))
     (lambda (current-file)
       (let ((name (file-name-sans-extension (file-name-nondirectory current-file))))
-        (when (or ignore-extension
-                  (equal (file-name-extension current-file) extension))
-          (or (equal prefix-name name)
-              (equal suffix-name name)))))))
+        (if (or (null ext) (equal (file-name-extension current-file) ext))
+            (or (equal prefix-name name)
+                (equal suffix-name name)))))))
 
 (defun projectile-find-matching-test (file)
   "Compute the name of the test matching FILE."
   (projectile--switch-from-candidate
    file
-   (or (projectile--get-related-files file :test)
+   (or (projectile--get-related-file-candidates file :test)
        (cl-remove-if-not (projectile--find-matching-test-filter file)
                          (projectile-current-project-files)))))
 
@@ -2813,22 +2806,21 @@ Fallback to DEFAULT-VALUE for missing attributes."
 
 (defun projectile--find-matching-file-filter (test-file)
   (let* ((basename (file-name-sans-extension (file-name-nondirectory test-file)))
-         (test-prefix (projectile--get-test-prefix test-file))
-         (test-suffix (projectile--get-test-suffix test-file))
-         (ignore-extension (projectile--ignore-extension-for-test))
-         (extension (file-name-extension test-file)))
+         (config (projectile--get-test-name-config test-file))
+         (test-prefix (plist-get config :test-prefix))
+         (test-suffix (plist-get config :test-suffix))
+         (ext (plist-get config :ext)))
     (lambda (current-file)
       (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
-        (when (or ignore-extension
-                  (equal (file-name-extension current-file) extension))
-          (or (when test-prefix (equal (concat test-prefix name) basename))
-              (when test-suffix (equal (concat name test-suffix) basename))))))))
+        (if (or (null ext) (equal (file-name-extension current-file) ext))
+            (or (when test-prefix (equal (concat test-prefix name) basename))
+                (when test-suffix (equal (concat name test-suffix) basename))))))))
 
 (defun projectile-find-matching-file (test-file)
   "Compute the name of a file matching TEST-FILE."
   (projectile--switch-from-candidate
    test-file
-   (or (projectile--get-related-files test-file :impl)
+   (or (projectile--get-related-file-candidates test-file :impl)
        (cl-remove-if-not (projectile--find-matching-file-filter test-file)
                          (projectile-current-project-files)))))
 
