@@ -919,10 +919,9 @@ test temp directory"
         (spy-on 'projectile-project-type :and-return-value 'npm-project)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
         (expect (projectile--find-matching-test "source/foo/foo.service.js") :to-equal '("spec/foo/foo.service.spec.js"))
-        (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js")))))))
+        (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js"))))))
 
-(describe "projectile--find-matching-file with the project option related-file :ext"
-  (it "finds matching test or impl file based on extension"
+  (it "finds matching test or file based on extension in a custom project with :related-file having :ext option"
     (projectile-test-with-sandbox
      (projectile-test-with-files
       ("project/src/"
@@ -945,35 +944,34 @@ test temp directory"
         (expect (projectile--find-matching-file "test/bar_test.py") :to-equal '("src/bar.py"))
         (expect (projectile-test-file-p "test/TestFoo.cpp") :to-equal t)
         (expect (projectile-test-file-p "test/bar_test.py") :to-equal t)
+        (expect (projectile-test-file-p "test/bar_test.cpp") :to-equal nil)
         (expect (projectile-test-file-p "src/Foo.cpp") :to-equal nil)
-        (expect (projectile-test-file-p "src/Foo.hpp") :to-equal nil)
-        (expect (projectile-test-file-p "test/bar_test.cpp") :to-equal nil))))))
+        (expect (projectile-test-file-p "src/Foo.hpp") :to-equal nil)))))
 
-(describe "projectile--find-matching-file with the project option related-file :function"
-  (it "finds matching test or impl based on what the custom function returns"
+  (it "finds matching test or file based on what the function returns in a custom project with :related-file :function option"
     (defun -my/related-file-function(file)
       (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
           (if (equal (match-string 1 file ) "test")
               (list :impl (concat "src" (match-string 2 file)))
             (list :test (concat "test" (match-string 2 file))))))
     (projectile-test-with-sandbox
-      (projectile-test-with-files
-          ("project/src/"
-           "project/test/"
-           "project/src/Foo.cpp"
-           "project/src/Bar.cpp"
-           "project/test/Bar.cpp"
-           "project/test/Foo.cpp")
-        (let ((projectile-indexing-method 'native)
-              (projectile-enable-caching nil))
-          (projectile-register-project-type 'cpp-project '("somefile")
-                                            :related-file '(:function -my/related-file-function))
-          (spy-on 'projectile-project-type :and-return-value 'cpp-project)
-          (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-          (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/Foo.cpp"))
-          (expect (projectile--find-matching-test "src/Foo2.cpp") :to-equal nil)
-          (expect (projectile--find-matching-file "test/Foo.cpp") :to-equal '("src/Foo.cpp"))
-          (expect (projectile--find-matching-file "test/Foo2.cpp") :to-equal nil))))))
+     (projectile-test-with-files
+      ("project/src/"
+       "project/test/"
+       "project/src/Foo.cpp"
+       "project/src/Bar.cpp"
+       "project/test/Bar.cpp"
+       "project/test/Foo.cpp")
+      (let ((projectile-indexing-method 'native)
+            (projectile-enable-caching nil))
+        (projectile-register-project-type 'cpp-project '("somefile")
+                                          :related-file '(:function -my/related-file-function))
+        (spy-on 'projectile-project-type :and-return-value 'cpp-project)
+        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
+        (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/Foo.cpp"))
+        (expect (projectile--find-matching-test "src/Foo2.cpp") :to-equal nil)
+        (expect (projectile--find-matching-file "test/Foo.cpp") :to-equal '("src/Foo.cpp"))
+        (expect (projectile--find-matching-file "test/Foo2.cpp") :to-equal nil))))))
 
 (describe "projectile-get-all-sub-projects"
   (it "excludes out-of-project submodules"
