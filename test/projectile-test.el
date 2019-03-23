@@ -921,8 +921,8 @@ test temp directory"
         (expect (projectile--find-matching-test "source/foo/foo.service.js") :to-equal '("spec/foo/foo.service.spec.js"))
         (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js")))))))
 
-(describe "related-file option :ext"
-  (it "finds matching test or impl file"
+(describe "projectile--find-matching-file with the project option related-file :ext"
+  (it "finds matching test or impl file based on extension"
     (projectile-test-with-sandbox
      (projectile-test-with-files
       ("project/src/"
@@ -949,9 +949,8 @@ test temp directory"
         (expect (projectile-test-file-p "src/Foo.hpp") :to-equal nil)
         (expect (projectile-test-file-p "test/bar_test.cpp") :to-equal nil))))))
 
-
-(describe "related-file option :function"
-  (it "finds matching test having same file name on different dir"
+(describe "projectile--find-matching-file with the project option related-file :function"
+  (it "finds matching test or impl based on what the custom function returns"
     (defun -my/related-file-function(file)
       (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
           (if (equal (match-string 1 file ) "test")
@@ -966,8 +965,7 @@ test temp directory"
            "project/test/Bar.cpp"
            "project/test/Foo.cpp")
         (let ((projectile-indexing-method 'native)
-              (projectile-enable-caching nil)
-              )
+              (projectile-enable-caching nil))
           (projectile-register-project-type 'cpp-project '("somefile")
                                             :related-file '(:function -my/related-file-function))
           (spy-on 'projectile-project-type :and-return-value 'cpp-project)
