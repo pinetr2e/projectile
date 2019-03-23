@@ -2728,18 +2728,22 @@ Fallback to DEFAULT-VALUE for missing attributes."
 
 (defun projectile-group-file-candidates (file candidates)
   "Group file candidates by dirname matching count."
-  (cl-sort (copy-sequence
-            (let (value result)
-              (while (setq value (pop candidates))
-                (let* ((key (projectile-dirname-matching-count file value))
-                       (kv (assoc key result)))
-                  (if kv
-                      (setcdr kv (cons value (cdr kv)))
-                    (push (list key value) result))))
-              (mapcar (lambda (x)
-                        (cons (car x) (nreverse (cdr x))))
-                      (nreverse result))))
-           (lambda (a b) (> (car a) (car b)))))
+  (let ((grouped-candidates
+         (cl-sort (copy-sequence
+                   (let (value result)
+                     (while (setq value (pop candidates))
+                       (let* ((key (projectile-dirname-matching-count file value))
+                              (kv (assoc key result)))
+                         (if kv
+                             (setcdr kv (cons value (cdr kv)))
+                           (push (list key value) result))))
+                     (mapcar (lambda (x)
+                               (cons (car x) (nreverse (cdr x))))
+                             (nreverse result))))
+                  (lambda (a b) (> (car a) (car b))))))
+    (if (= (length (car grouped-candidates)) 2)
+        (list (car (last (car grouped-candidates))))
+      (apply 'append (mapcar 'cdr grouped-candidates)))))
 
 (defun projectile--get-test-name-config(file)
   (if-let ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
@@ -2771,9 +2775,9 @@ Fallback to DEFAULT-VALUE for missing attributes."
       (or (when test-prefix (string-prefix-p test-prefix basename))
           (when test-suffix (string-suffix-p test-suffix basename))))))
 
-(defun projectile--find-matching-test-filter (file)
-  (let* ((basename (file-name-sans-extension (file-name-nondirectory file)))
-         (config (projectile--get-test-name-config file))
+(defun projectile--get-impl-to-test-predicate (impl-file)
+  (let* ((basename (file-name-sans-extension (file-name-nondirectory impl-file)))
+         (config (projectile--get-test-name-config impl-file))
          (test-prefix (plist-get config :test-prefix))
          (test-suffix (plist-get config :test-suffix))
          (ext (plist-get config :ext))
@@ -2781,30 +2785,17 @@ Fallback to DEFAULT-VALUE for missing attributes."
          (suffix-name (when test-suffix (concat basename test-suffix))))
     (lambda (current-file)
       (let ((name (file-name-sans-extension (file-name-nondirectory current-file))))
-        (if (or (null ext) (equal (file-name-extension current-file) ext))
-            (or (equal prefix-name name)
-                (equal suffix-name name)))))))
+        (if (or (null ext) (string-equal (file-name-extension current-file) ext))
+            (or (string-equal prefix-name name)
+                (string-equal suffix-name name)))))))
 
-(defun projectile-find-matching-test (file)
-  "Compute the name of the test matching FILE."
-  (projectile--switch-from-candidate
-   file
-   (or (projectile--get-related-file-candidates file :test)
-       (cl-remove-if-not (projectile--find-matching-test-filter file)
-                         (projectile-current-project-files)))))
+(defun projectile--find-matching-test (impl-file)
+  (or (projectile--get-related-file-candidates impl-file :test)
+      (projectile-group-file-candidates
+       impl-file (cl-remove-if-not (projectile--get-impl-to-test-predicate impl-file)
+                                   (projectile-current-project-files)))))
 
-(defun projectile--switch-from-candidate (file candidates)
-  (cond
-   ((null candidates) nil)
-   ((= (length candidates) 1) (car candidates))
-   (t (let ((grouped-candidates (projectile-group-file-candidates file candidates)))
-        (if (= (length (car grouped-candidates)) 2)
-            (car (last (car grouped-candidates)))
-          (projectile-completing-read
-           "Switch to: "
-           (apply 'append (mapcar 'cdr grouped-candidates))))))))
-
-(defun projectile--find-matching-file-filter (test-file)
+(defun projectile--get-test-to-impl-predicate (test-file)
   (let* ((basename (file-name-sans-extension (file-name-nondirectory test-file)))
          (config (projectile--get-test-name-config test-file))
          (test-prefix (plist-get config :test-prefix))
@@ -2813,16 +2804,29 @@ Fallback to DEFAULT-VALUE for missing attributes."
     (lambda (current-file)
       (let ((name (file-name-nondirectory (file-name-sans-extension current-file))))
         (if (or (null ext) (equal (file-name-extension current-file) ext))
-            (or (when test-prefix (equal (concat test-prefix name) basename))
-                (when test-suffix (equal (concat name test-suffix) basename))))))))
+            (or (when test-prefix (string-equal (concat test-prefix name) basename))
+                (when test-suffix (string-equal (concat name test-suffix) basename))))))))
+
+(defun projectile--find-matching-file (test-file)
+  (or (projectile--get-related-file-candidates test-file :impl)
+      (projectile-group-file-candidates
+       test-file (cl-remove-if-not (projectile--get-test-to-impl-predicate test-file)
+                                   (projectile-current-project-files)))))
+
+(defun projectile--choose-from-candidates (candidates)
+  (if (= (length candidates) 1)
+      (car candidates)
+    (projectile-completing-read "Switch to: " candidates)))
+
+(defun projectile-find-matching-test (impl-file)
+  "Compute the name of the test matching FILE."
+  (if-let ((candidates (projectile--find-matching-test impl-file)))
+      (projectile--choose-from-candidates candidates)))
 
 (defun projectile-find-matching-file (test-file)
   "Compute the name of a file matching TEST-FILE."
-  (projectile--switch-from-candidate
-   test-file
-   (or (projectile--get-related-file-candidates test-file :impl)
-       (cl-remove-if-not (projectile--find-matching-file-filter test-file)
-                         (projectile-current-project-files)))))
+  (if-let ((candidates (projectile--find-matching-file test-file)))
+      (projectile--choose-from-candidates candidates)))
 
 (defun projectile-grep-default-files ()
   "Try to find a default pattern for `projectile-grep'.

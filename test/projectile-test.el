@@ -866,7 +866,7 @@ test temp directory"
     (expect (projectile-dirname-matching-count "src/weed/sea.c" "src/food/sea.c") :to-equal 0)
     (expect (projectile-dirname-matching-count "test/demo-test.el" "demo.el") :to-equal 0)))
 
-(describe "projectile-find-matching-test"
+(describe "projectile--find-matching-test"
   (it "finds matching test or file"
     (projectile-test-with-sandbox
      (projectile-test-with-files
@@ -881,8 +881,8 @@ test temp directory"
       (let ((projectile-indexing-method 'native))
         (spy-on 'projectile-project-type :and-return-value 'rails-rspec)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile-find-matching-test "app/models/food/sea.rb") :to-equal "spec/models/food/sea_spec.rb")
-        (expect (projectile-find-matching-file "spec/models/food/sea_spec.rb") :to-equal "app/models/food/sea.rb")))))
+        (expect (projectile--find-matching-test "app/models/food/sea.rb") :to-equal '("spec/models/food/sea_spec.rb"))
+        (expect (projectile--find-matching-file "spec/models/food/sea_spec.rb") :to-equal '("app/models/food/sea.rb"))))))
   (it "finds matching test or file in a custom project"
     (projectile-test-with-sandbox
      (projectile-test-with-files
@@ -898,8 +898,8 @@ test temp directory"
         (projectile-register-project-type 'npm-project '("somefile") :test-suffix ".spec")
         (spy-on 'projectile-project-type :and-return-value 'npm-project)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile-find-matching-test "src/foo/foo.service.js") :to-equal "test/foo/foo.service.spec.js")
-        (expect (projectile-find-matching-file "test/bar/bar.service.spec.js") :to-equal "src/bar/bar.service.js")))))
+        (expect (projectile--find-matching-test "src/foo/foo.service.js") :to-equal '("test/foo/foo.service.spec.js"))
+        (expect (projectile--find-matching-file "test/bar/bar.service.spec.js") :to-equal '("src/bar/bar.service.js"))))))
   (it "finds matching test or file in a custom project with dirs"
     (projectile-test-with-sandbox
      (projectile-test-with-files
@@ -918,8 +918,8 @@ test temp directory"
                                           :src-dir "source/")
         (spy-on 'projectile-project-type :and-return-value 'npm-project)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile-find-matching-test "source/foo/foo.service.js") :to-equal "spec/foo/foo.service.spec.js")
-        (expect (projectile-find-matching-file "spec/bar/bar.service.spec.js") :to-equal "source/bar/bar.service.js"))))))
+        (expect (projectile--find-matching-test "source/foo/foo.service.js") :to-equal '("spec/foo/foo.service.spec.js"))
+        (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js")))))))
 
 (describe "related-file option :ext"
   (it "finds matching test or impl file"
@@ -939,10 +939,10 @@ test temp directory"
                                                                 "py" (:test-suffix "_test"))))
         (spy-on 'projectile-project-type :and-return-value 'cpp-project)
         (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile-find-matching-test "src/Foo.cpp") :to-equal "test/TestFoo.cpp")
-        (expect (projectile-find-matching-test "src/bar.py") :to-equal "test/bar_test.py")
-        (expect (projectile-find-matching-file "test/TestFoo.cpp") :to-equal "src/Foo.cpp")
-        (expect (projectile-find-matching-file "test/bar_test.py") :to-equal "src/bar.py")
+        (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/TestFoo.cpp"))
+        (expect (projectile--find-matching-test "src/bar.py") :to-equal '("test/bar_test.py"))
+        (expect (projectile--find-matching-file "test/TestFoo.cpp") :to-equal '("src/Foo.cpp"))
+        (expect (projectile--find-matching-file "test/bar_test.py") :to-equal '("src/bar.py"))
         (expect (projectile-test-file-p "test/TestFoo.cpp") :to-equal t)
         (expect (projectile-test-file-p "test/bar_test.py") :to-equal t)
         (expect (projectile-test-file-p "src/Foo.cpp") :to-equal nil)
@@ -972,10 +972,10 @@ test temp directory"
                                             :related-file '(:function -my/related-file-function))
           (spy-on 'projectile-project-type :and-return-value 'cpp-project)
           (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-          (expect (projectile-find-matching-test "src/Foo.cpp") :to-equal "test/Foo.cpp")
-          (expect (projectile-find-matching-test "src/Foo2.cpp") :to-equal nil)
-          (expect (projectile-find-matching-file "test/Foo.cpp") :to-equal "src/Foo.cpp")
-          (expect (projectile-find-matching-file "test/Foo2.cpp") :to-equal nil))))))
+          (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/Foo.cpp"))
+          (expect (projectile--find-matching-test "src/Foo2.cpp") :to-equal nil)
+          (expect (projectile--find-matching-file "test/Foo.cpp") :to-equal '("src/Foo.cpp"))
+          (expect (projectile--find-matching-file "test/Foo2.cpp") :to-equal nil))))))
 
 (describe "projectile-get-all-sub-projects"
   (it "excludes out-of-project submodules"
