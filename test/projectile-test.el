@@ -66,6 +66,7 @@ You'd normally combine this with `projectile-test-with-sandbox'."
      ,@body))
 
 (defmacro projectile-test-with-files-using-custom-project (files project-options &rest body)
+  "Evaluate BODY with the custom project having PROJECT-OPTIONS with FILES."
   (declare (indent 2) (debug (sexp &rest form)))
   `(let ((projectile-indexing-method 'native)
          (projectile-projects-cache (make-hash-table :test 'equal))
@@ -87,8 +88,7 @@ You'd normally combine this with `projectile-test-with-sandbox'."
      ,@body))
 
 (defun projectile-test-tmp-file-path ()
-  "Return a filename suitable to save data to in the
-test temp directory"
+  "Return a filename suitable to save data to in the test temp directory."
   (concat projectile-test-path
           "/tmp/temporary-file-" (format "%d" (random))
           ".eld"))
@@ -829,7 +829,22 @@ test temp directory"
         (expect (projectile-get-other-files "src/test1.def") :to-equal '("src/test1.cpp"))
         (expect (projectile-get-other-files "src/test2.def") :to-equal '("src/test2.cpp" "src/test2.h"))
         ;; Make sure extension based mechanism is still working
-        (expect (projectile-get-other-files "src/test2.cpp") :to-equal '("src/test2.h"))))))
+        (expect (projectile-get-other-files "src/test2.cpp") :to-equal '("src/test2.h")))))
+
+  (it "returns files based on :related-file :ext option"
+    (projectile-test-with-sandbox
+      (projectile-test-with-files-using-custom-project
+          ("src/test1.cpp"
+           "src/test1.def"
+           "src/test1.h"
+           "src/test1.tpp")
+          (:related-file '(:ext ("def" (:other ("cpp" "h"))
+                                 "cpp" (:other ("tpp")))))
+        (expect (projectile-get-other-files "src/test1.def") :to-equal '("src/test1.cpp" "src/test1.h"))
+        ;; Make sure extension based mechanism is still working
+        (expect (projectile-get-other-files "src/test1.h") :to-equal '("src/test1.cpp"))
+        ;; Override global one
+        (expect (projectile-get-other-files "src/test1.cpp") :to-equal '("src/test1.tpp"))))))
 
 (describe "projectile-compilation-dir"
   (it "returns the compilation directory for a project"

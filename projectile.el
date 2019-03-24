@@ -1924,14 +1924,25 @@ The extensions, in a filename, are what follows the first '.', with the exceptio
                    (1+ extensions-start)
                  (length file-name)))))
 
+(defun projectile--get-other-file-alist ()
+  "Return alist combining global projectile-other-file-alist with project option :related-file, :ext"
+  (let* ((related-file-option (funcall projectile-related-file-function (projectile-project-type)))
+         (ext-plist (plist-get related-file-option :ext))
+         (other-file-alist (cl-loop for (ext options) on ext-plist by #'cddr
+                                    for other-exts = (plist-get options :other)
+                                    if other-exts
+                                    collect (cons ext other-exts))))
+    (append other-file-alist projectile-other-file-alist)))
+
 (defun projectile-associated-file-name-extensions (file-name)
   "Return projectile-other-file-extensions associated to FILE-NAME's extensions.
 If no associated other-file-extensions for the complete (nested) extension are found, remove subextensions from FILENAME's extensions until a match is found."
   (let ((current-extensions (projectile--file-name-extensions (file-name-nondirectory file-name)))
+        (other-file-alist (projectile--get-other-file-alist))
         associated-extensions)
     (catch 'break
       (while (not (string= "" current-extensions))
-        (if (setq associated-extensions (cdr (assoc current-extensions projectile-other-file-alist)))
+        (if (setq associated-extensions (cdr (assoc current-extensions other-file-alist)))
             (throw 'break associated-extensions))
         (setq current-extensions (projectile--file-name-extensions current-extensions))))))
 
@@ -2828,6 +2839,7 @@ Fallback to DEFAULT-VALUE for missing attributes."
   "Compute the name of a file matching TEST-FILE."
   (if-let ((candidates (projectile--find-matching-file test-file)))
       (projectile--choose-from-candidates candidates)))
+
 
 (defun projectile-grep-default-files ()
   "Try to find a default pattern for `projectile-grep'.
