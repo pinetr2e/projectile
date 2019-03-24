@@ -1857,7 +1857,12 @@ https://github.com/abo-abo/swiper")))
   "Return a list of dirs for the current project."
   (projectile-project-dirs (projectile-ensure-project (projectile-project-root))))
 
-;;; Interactive commands
+
+(defun projectile-get-other-files (file-name &optional flex-matching)
+  (or (projectile--get-related-file-candidates file-name :other)
+      (projectile--get-other-extension-files file-name
+                                             (projectile-current-project-files)
+                                             flex-matching)))
 
 (defun projectile--find-other-file (&optional flex-matching ff-variant)
   "Switch between files with the same name but different extensions.
@@ -1867,19 +1872,15 @@ Other file extensions can be customized with the variable
 instead of `find-file'.   A typical example of such a defun would be
 `find-file-other-window' or `find-file-other-frame'"
   (let ((ff (or ff-variant #'find-file))
-        (other-files (projectile-get-other-files
-                      (buffer-file-name)
-                      (projectile-current-project-files)
-                      flex-matching)))
+        (other-files (projectile-get-other-files (buffer-file-name) flex-matching)))
     (if other-files
-        (let ((file-name (if (= (length other-files) 1)
-                             (car other-files)
-                           (projectile-completing-read "Switch to: "
-                                                       other-files))))
+        (let ((file-name (projectile--choose-from-candidates other-files)))
           (funcall ff (expand-file-name file-name
                                         (projectile-project-root))))
       (error "No other file found"))))
 
+
+;;; Interactive commands
 ;;;###autoload
 (defun projectile-find-other-file (&optional flex-matching)
   "Switch between files with the same name but different extensions.
@@ -1934,7 +1935,7 @@ If no associated other-file-extensions for the complete (nested) extension are f
             (throw 'break associated-extensions))
         (setq current-extensions (projectile--file-name-extensions current-extensions))))))
 
-(defun projectile-get-other-files (current-file project-file-list &optional flex-matching)
+(defun projectile--get-other-extension-files (current-file project-file-list &optional flex-matching)
   "Narrow to files with the same names but different extensions.
 Returns a list of possible files for users to choose.
 

@@ -65,6 +65,27 @@ You'd normally combine this with `projectile-test-with-sandbox'."
                files)
      ,@body))
 
+(defmacro projectile-test-with-files-using-custom-project (files project-options &rest body)
+  (declare (indent 2) (debug (sexp &rest form)))
+  `(let ((projectile-indexing-method 'native)
+         (projectile-projects-cache (make-hash-table :test 'equal))
+         (projectile-projects-cache-time (make-hash-table :test 'equal))
+         (projectile-enable-caching t))
+     ,@(mapcar (lambda (file)
+                 (setq file (concat "project/" file))
+                 (if (string-suffix-p "/" file)
+                     `(make-directory ,file t)
+                   (if-let ((dir (file-name-directory file)))
+                       `(progn
+                          (make-directory ,dir t)
+                          (with-temp-file ,file))
+                     `(with-temp-file ,file))))
+               files)
+     (projectile-register-project-type 'sample-project '("somefile") ,@project-options)
+     (spy-on 'projectile-project-type :and-return-value 'sample-project)
+     (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
+     ,@body))
+
 (defun projectile-test-tmp-file-path ()
   "Return a filename suitable to save data to in the
 test temp directory"
@@ -723,74 +744,92 @@ test temp directory"
 
 (describe "projectile-get-other-files"
   (it "returns files with same names but different extensions"
-    (let ((projectile-other-file-alist '(;; handle C/C++ extensions
-                                         ("cpp" . ("h" "hpp" "ipp"))
-                                         ("ipp" . ("h" "hpp" "cpp"))
-                                         ("hpp" . ("h" "ipp" "cpp"))
-                                         ("cxx" . ("hxx" "ixx"))
-                                         ("ixx" . ("cxx" "hxx"))
-                                         ("hxx" . ("ixx" "cxx"))
-                                         ("c" . ("h"))
-                                         ("m" . ("h"))
-                                         ("mm" . ("h"))
-                                         ("h" . ("c" "cpp" "ipp" "hpp" "m" "mm"))
-                                         ("cc" . ("hh"))
-                                         ("hh" . ("cc"))
+    (projectile-test-with-sandbox
+      (projectile-test-with-files-using-custom-project
+          ("src/test1.c"
+           "src/test2.c"
+           "src/test+copying.m"
+           "src/test1.cpp"
+           "src/test2.cpp"
+           "src/Makefile"
+           "src/test.vert"
+           "src/test.frag"
+           "src/same_name.c"
+           "src/some_module/same_name.c"
+           "include1/same_name.h"
+           "include1/test1.h"
+           "include1/test1.h~"
+           "include1/test2.h"
+           "include1/test+copying.h"
+           "include1/test1.hpp"
+           "include2/some_module/same_name.h"
+           "include2/test1.h"
+           "include2/test2.h"
+           "include2/test2.hpp"
+           "src/test1.service.js"
+           "src/test2.service.spec.js"
+           "include1/test1.service.spec.js"
+           "include2/test1.service.spec.js"
+           "include1/test2.js"
+           "include2/test2.js")
+          ()
+        (let ((projectile-other-file-alist '(;; handle C/C++ extensions
+                                             ("cpp" . ("h" "hpp" "ipp"))
+                                             ("ipp" . ("h" "hpp" "cpp"))
+                                             ("hpp" . ("h" "ipp" "cpp"))
+                                             ("cxx" . ("hxx" "ixx"))
+                                             ("ixx" . ("cxx" "hxx"))
+                                             ("hxx" . ("ixx" "cxx"))
+                                             ("c" . ("h"))
+                                             ("m" . ("h"))
+                                             ("mm" . ("h"))
+                                             ("h" . ("c" "cpp" "ipp" "hpp" "m" "mm"))
+                                             ("cc" . ("hh"))
+                                             ("hh" . ("cc"))
 
-                                         ;; vertex shader and fragment shader extensions in glsl
-                                         ("vert" . ("frag"))
-                                         ("frag" . ("vert"))
+                                             ;; vertex shader and fragment shader extensions in glsl
+                                             ("vert" . ("frag"))
+                                             ("frag" . ("vert"))
 
-                                         ;; handle files with no extension
-                                         (nil . ("lock" "gpg"))
-                                         ("lock" . (""))
-                                         ("gpg" . (""))
+                                             ;; handle files with no extension
+                                             (nil . ("lock" "gpg"))
+                                             ("lock" . (""))
+                                             ("gpg" . (""))
 
-                                         ;; handle files with nested extensions
-                                         ("service.js" . ("service.spec.js"))
-                                         ("js" . ("js"))))
-          (source-tree '("src/test1.c"
-                       "src/test2.c"
-                       "src/test+copying.m"
-                       "src/test1.cpp"
-                       "src/test2.cpp"
-                       "src/Makefile"
-                       "src/test.vert"
-                       "src/test.frag"
-                       "src/same_name.c"
-                       "src/some_module/same_name.c"
-                       "include1/same_name.h"
-                       "include1/test1.h"
-                       "include1/test1.h~"
-                       "include1/test2.h"
-                       "include1/test+copying.h"
-                       "include1/test1.hpp"
-                       "include2/some_module/same_name.h"
-                       "include2/test1.h"
-                       "include2/test2.h"
-                       "include2/test2.hpp"
+                                             ;; handle files with nested extensions
+                                             ("service.js" . ("service.spec.js"))
+                                             ("js" . ("js")))))
+          (expect (projectile-get-other-files "src/test1.c") :to-equal '("include1/test1.h" "include2/test1.h"))
+          (expect (projectile-get-other-files "src/test1.cpp") :to-equal '("include1/test1.h" "include2/test1.h" "include1/test1.hpp"))
+          (expect (projectile-get-other-files "test2.c") :to-equal '("include1/test2.h" "include2/test2.h"))
+          (expect (projectile-get-other-files "test2.cpp") :to-equal '("include1/test2.h" "include2/test2.h" "include2/test2.hpp"))
+          (expect (projectile-get-other-files "test1.h") :to-equal '("src/test1.c" "src/test1.cpp" "include1/test1.hpp"))
+          (expect (projectile-get-other-files "test2.h") :to-equal '("src/test2.c" "src/test2.cpp" "include2/test2.hpp"))
+          (expect (projectile-get-other-files "include1/test1.h" t) :to-equal '("src/test1.c" "src/test1.cpp" "include1/test1.hpp"))
+          (expect (projectile-get-other-files "Makefile.lock") :to-equal '("src/Makefile"))
+          (expect (projectile-get-other-files "include2/some_module/same_name.h") :to-equal '("src/some_module/same_name.c" "src/same_name.c"))
+          ;; nested extensions
+          (expect (projectile-get-other-files "src/test1.service.js") :to-equal '("include1/test1.service.spec.js" "include2/test1.service.spec.js"))
+          ;; fallback to outer extensions if no rule for nested extension defined
+          (expect (projectile-get-other-files "src/test2.service.spec.js") :to-equal '("include1/test2.js" "include2/test2.js"))
+          (expect (projectile-get-other-files "src/test+copying.m") :to-equal '("include1/test+copying.h"))))))
 
-                       "src/test1.service.js"
-                       "src/test2.service.spec.js"
-                       "include1/test1.service.spec.js"
-                       "include2/test1.service.spec.js"
-                       "include1/test2.js"
-                       "include2/test2.js")))
-
-      (expect (projectile-get-other-files "src/test1.c" source-tree) :to-equal '("include1/test1.h" "include2/test1.h"))
-      (expect (projectile-get-other-files "src/test1.cpp" source-tree) :to-equal '("include1/test1.h" "include2/test1.h" "include1/test1.hpp"))
-      (expect (projectile-get-other-files "test2.c" source-tree) :to-equal '("include1/test2.h" "include2/test2.h"))
-      (expect (projectile-get-other-files "test2.cpp" source-tree) :to-equal '("include1/test2.h" "include2/test2.h" "include2/test2.hpp"))
-      (expect (projectile-get-other-files "test1.h" source-tree) :to-equal '("src/test1.c" "src/test1.cpp" "include1/test1.hpp"))
-      (expect (projectile-get-other-files "test2.h" source-tree) :to-equal '("src/test2.c" "src/test2.cpp" "include2/test2.hpp"))
-      (expect (projectile-get-other-files "include1/test1.h" source-tree t) :to-equal '("src/test1.c" "src/test1.cpp" "include1/test1.hpp"))
-      (expect (projectile-get-other-files "Makefile.lock" source-tree) :to-equal '("src/Makefile"))
-      (expect (projectile-get-other-files "include2/some_module/same_name.h" source-tree) :to-equal '("src/some_module/same_name.c" "src/same_name.c"))
-      ;; nested extensions
-      (expect (projectile-get-other-files "src/test1.service.js" source-tree) :to-equal '("include1/test1.service.spec.js" "include2/test1.service.spec.js"))
-      ;; fallback to outer extensions if no rule for nested extension defined
-      (expect (projectile-get-other-files "src/test2.service.spec.js" source-tree) :to-equal '("include1/test2.js" "include2/test2.js"))
-      (expect (projectile-get-other-files "src/test+copying.m" source-tree) :to-equal '("include1/test+copying.h")))))
+  (it "returns files based on what the function returns in a custom project with :related-file :function option"
+    (projectile-test-with-sandbox
+      (projectile-test-with-files-using-custom-project
+          ("src/test1.cpp"
+           "src/test1.def"
+           "src/test2.def"
+           "src/test2.cpp"
+           "src/test2.h")
+          (:related-file (list :function
+                               (lambda (file)
+                                 (cond ((string-equal file "src/test1.def") '(:other "src/test1.cpp"))
+                                       ((string-equal file "src/test2.def") '(:other ("src/test2.cpp" "src/test2.h" "src/test3.h")))))))
+        (expect (projectile-get-other-files "src/test1.def") :to-equal '("src/test1.cpp"))
+        (expect (projectile-get-other-files "src/test2.def") :to-equal '("src/test2.cpp" "src/test2.h"))
+        ;; Make sure extension based mechanism is still working
+        (expect (projectile-get-other-files "src/test2.cpp") :to-equal '("src/test2.h"))))))
 
 (describe "projectile-compilation-dir"
   (it "returns the compilation directory for a project"
@@ -869,75 +908,36 @@ test temp directory"
 (describe "projectile--find-matching-test"
   (it "finds matching test or file"
     (projectile-test-with-sandbox
-     (projectile-test-with-files
-      ("project/app/models/weed/"
-       "project/app/models/food/"
-       "project/spec/models/weed/"
-       "project/spec/models/food/"
-       "project/app/models/weed/sea.rb"
-       "project/app/models/food/sea.rb"
-       "project/spec/models/weed/sea_spec.rb"
-       "project/spec/models/food/sea_spec.rb")
-      (let ((projectile-indexing-method 'native))
-        (spy-on 'projectile-project-type :and-return-value 'rails-rspec)
-        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
+      (projectile-test-with-files-using-custom-project
+          ("app/models/weed/sea.rb"
+           "app/models/food/sea.rb"
+           "spec/models/weed/sea_spec.rb"
+           "spec/models/food/sea_spec.rb")
+          (:test-suffix "_spec")
         (expect (projectile--find-matching-test "app/models/food/sea.rb") :to-equal '("spec/models/food/sea_spec.rb"))
-        (expect (projectile--find-matching-file "spec/models/food/sea_spec.rb") :to-equal '("app/models/food/sea.rb"))))))
-  (it "finds matching test or file in a custom project"
-    (projectile-test-with-sandbox
-     (projectile-test-with-files
-      ("project/src/foo/"
-       "project/src/bar/"
-       "project/test/foo/"
-       "project/test/bar/"
-       "project/src/foo/foo.service.js"
-       "project/src/bar/bar.service.js"
-       "project/test/foo/foo.service.spec.js"
-       "project/test/bar/bar.service.spec.js")
-      (let ((projectile-indexing-method 'native))
-        (projectile-register-project-type 'npm-project '("somefile") :test-suffix ".spec")
-        (spy-on 'projectile-project-type :and-return-value 'npm-project)
-        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile--find-matching-test "src/foo/foo.service.js") :to-equal '("test/foo/foo.service.spec.js"))
-        (expect (projectile--find-matching-file "test/bar/bar.service.spec.js") :to-equal '("src/bar/bar.service.js"))))))
-  (it "finds matching test or file in a custom project with dirs"
-    (projectile-test-with-sandbox
-     (projectile-test-with-files
-      ("project/source/foo/"
-       "project/source/bar/"
-       "project/spec/foo/"
-       "project/spec/bar/"
-       "project/source/foo/foo.service.js"
-       "project/source/bar/bar.service.js"
-       "project/spec/foo/foo.service.spec.js"
-       "project/spec/bar/bar.service.spec.js")
-      (let ((projectile-indexing-method 'native))
-        (projectile-register-project-type 'npm-project '("somefile")
-                                          :test-suffix ".spec"
-                                          :test-dir "spec/"
-                                          :src-dir "source/")
-        (spy-on 'projectile-project-type :and-return-value 'npm-project)
-        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
-        (expect (projectile--find-matching-test "source/foo/foo.service.js") :to-equal '("spec/foo/foo.service.spec.js"))
-        (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js"))))))
+        (expect (projectile--find-matching-file "spec/models/food/sea_spec.rb") :to-equal '("app/models/food/sea.rb")))))
 
-  (it "finds matching test or file based on extension in a custom project with :related-file having :ext option"
+  (it "finds matching test or file with dirs"
     (projectile-test-with-sandbox
-     (projectile-test-with-files
-      ("project/src/"
-       "project/test/"
-       "project/src/Foo.cpp"
-       "project/src/Foo.hpp"
-       "project/src/bar.py"
-       "project/test/TestFoo.cpp"
-       "project/test/bar_test.py")
-      (let ((projectile-indexing-method 'native)
-            (projectile-enable-caching nil))
-        (projectile-register-project-type 'cpp-project '("somefile")
-                                          :related-file '(:ext ("cpp" (:test-prefix "Test")
-                                                                "py" (:test-suffix "_test"))))
-        (spy-on 'projectile-project-type :and-return-value 'cpp-project)
-        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
+      (projectile-test-with-files-using-custom-project
+          ("source/foo/foo.service.js"
+           "source/bar/bar.service.js"
+           "spec/foo/foo.service.spec.js"
+           "spec/bar/bar.service.spec.js")
+          (:test-suffix ".spec" :test-dir "spec/" :src-dir "source/")
+        (expect (projectile--find-matching-test "source/foo/foo.service.js") :to-equal '("spec/foo/foo.service.spec.js"))
+        (expect (projectile--find-matching-file "spec/bar/bar.service.spec.js") :to-equal '("source/bar/bar.service.js")))))
+
+  (it "finds matching test or file based on extension with :related-file having :ext option"
+    (projectile-test-with-sandbox
+      (projectile-test-with-files-using-custom-project
+          ("src/Foo.cpp"
+           "src/Foo.hpp"
+           "src/bar.py"
+           "test/TestFoo.cpp"
+           "test/bar_test.py")
+          (:related-file '(:ext ("cpp" (:test-prefix "Test")
+                                 "py" (:test-suffix "_test"))))
         (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/TestFoo.cpp"))
         (expect (projectile--find-matching-test "src/bar.py") :to-equal '("test/bar_test.py"))
         (expect (projectile--find-matching-file "test/TestFoo.cpp") :to-equal '("src/Foo.cpp"))
@@ -946,32 +946,25 @@ test temp directory"
         (expect (projectile-test-file-p "test/bar_test.py") :to-equal t)
         (expect (projectile-test-file-p "test/bar_test.cpp") :to-equal nil)
         (expect (projectile-test-file-p "src/Foo.cpp") :to-equal nil)
-        (expect (projectile-test-file-p "src/Foo.hpp") :to-equal nil)))))
+        (expect (projectile-test-file-p "src/Foo.hpp") :to-equal nil))))
 
-  (it "finds matching test or file based on what the function returns in a custom project with :related-file :function option"
+  (it "finds matching test or file based on what the function returns project with :related-file :function option"
     (defun -my/related-file-function(file)
       (if (string-match (rx (group (or "src" "test")) (group "/" (1+ anything) ".cpp")) file)
           (if (equal (match-string 1 file ) "test")
               (list :impl (concat "src" (match-string 2 file)))
             (list :test (concat "test" (match-string 2 file))))))
     (projectile-test-with-sandbox
-     (projectile-test-with-files
-      ("project/src/"
-       "project/test/"
-       "project/src/Foo.cpp"
-       "project/src/Bar.cpp"
-       "project/test/Bar.cpp"
-       "project/test/Foo.cpp")
-      (let ((projectile-indexing-method 'native)
-            (projectile-enable-caching nil))
-        (projectile-register-project-type 'cpp-project '("somefile")
-                                          :related-file '(:function -my/related-file-function))
-        (spy-on 'projectile-project-type :and-return-value 'cpp-project)
-        (spy-on 'projectile-project-root :and-return-value (file-truename (expand-file-name "project/")))
+      (projectile-test-with-files-using-custom-project
+          ("src/Foo.cpp"
+           "src/Bar.cpp"
+           "test/Bar.cpp"
+           "test/Foo.cpp")
+          (:related-file '(:function -my/related-file-function))
         (expect (projectile--find-matching-test "src/Foo.cpp") :to-equal '("test/Foo.cpp"))
         (expect (projectile--find-matching-test "src/Foo2.cpp") :to-equal nil)
         (expect (projectile--find-matching-file "test/Foo.cpp") :to-equal '("src/Foo.cpp"))
-        (expect (projectile--find-matching-file "test/Foo2.cpp") :to-equal nil))))))
+        (expect (projectile--find-matching-file "test/Foo2.cpp") :to-equal nil)))))
 
 (describe "projectile-get-all-sub-projects"
   (it "excludes out-of-project submodules"
